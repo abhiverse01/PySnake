@@ -1,0 +1,1023 @@
+import sys
+import pygame
+import pygame.mixer
+import random
+import time
+from heapq import heappop, heappush
+
+# Initialize Pygame
+pygame.init()
+pygame.mixer.init()
+
+# Load sound files
+food_eating_sound = pygame.mixer.Sound("food_eating(1).mp3")
+# game_over_sound = pygame.mixer.Sound("game_over.wav")
+game_over_sound = pygame.mixer.Sound("pacman-die.mp3")
+
+# Set the window dimensions
+window_width = 800
+window_height = 700
+window = pygame.display.set_mode((window_width, window_height))
+pygame.display.set_caption("PySnake_Minor_Project")
+
+# Load the background image
+background_image = pygame.image.load("PySnake (6).jpg")
+background_image = pygame.transform.scale(background_image, (window_width, window_height))
+
+# Load the playground image
+playground_image = pygame.image.load("PySnake (8).jpg")
+playground_image = pygame.transform.scale(playground_image, (window_width, window_height))
+
+# Blit the background image onto the window
+window.blit(background_image, (0, 0))
+
+# Define colors
+black = pygame.Color(0, 0, 63)  # Deep blue, reminiscent of a night sky
+white = pygame.Color(172, 215, 255)  # Soft, pastel blue - much lighter version of the provided color
+green = pygame.Color(93, 186, 252)  # Blue-green color, a mix of blue with some greens hue
+red = pygame.Color(213, 50, 80)  # Solid-Red color, for enemy snake
+beige = pygame.Color(188, 222, 255)  # A very light shade of the original blue color
+yellow = pygame.Color(108, 167, 207)  # Modified to a teal color, more harmonious with the blue theme
+light_black = pygame.Color(20, 50, 100)  # Darker blue, for contrast with lighter colors
+soft_blue = pygame.Color(92, 182, 249)  # The original blue color (#5cb6f9)
+
+# Colours for translucent boxes
+translucent_white = pygame.Color(255, 255, 255, 128)  # Semi-transparent white
+translucent_blue = pygame.Color(56, 135, 204, 128)
+
+# Colours for transparent effect
+transparent = pygame.Color(0, 0, 0, 0)
+
+# Set up the game font
+font_style = pygame.font.SysFont("century gothic", 16)
+score_font = pygame.font.SysFont("century gothic", 16)
+title_font = pygame.font.SysFont("century gothic", 0)
+
+# Battle Mode Initial scores
+bm_score = 50
+bm_enemy_score = 50
+
+# Control the game speed
+game_speed = 15
+
+# Set the game clock
+clock = pygame.time.Clock()
+
+# Set the initial game speed
+delay = 0.1
+
+# Set the initial score and high score
+score = 0
+high_score = 0
+
+# Set the initial snake head position and direction
+snake_x = window_width // 2
+snake_y = window_height // 2
+snake_size = 10
+snake_x_change = 0
+snake_y_change = 0
+
+# Initialize the enemy snake
+enemy_snake_x = 600
+enemy_snake_y = 500
+enemy_snake_x_change = 0
+enemy_snake_y_change = 0
+
+# Set the initial snake food position
+food_x = round(random.randrange(0, window_width - snake_size) / 10.0) * 10.0
+food_y = round(random.randrange(0, window_height - snake_size) / 10.0) * 10.0
+
+# Initialize the snake body
+snake_body = []
+snake_length = 1
+
+# Maze variables
+maze_mode = False
+maze_width = 80
+maze_height = 70
+maze_cells = [[1] * maze_height for _ in range(maze_width)]
+maze_stack = []
+
+# Define offset variables for the maze
+offset_x = (window_width - (maze_width * snake_size)) // 2
+offset_y = (window_height - (maze_height * snake_size)) // 2
+
+# Time mode variables
+time_mode = False
+start_time = 0
+time_limit = 180  # 3 minutes in seconds
+
+
+# Function to start a new game
+def start_new_game():
+    global score, snake_x, snake_y, snake_x_change, snake_y_change, snake_body, snake_length, maze_mode, \
+        time_mode, start_time
+    score = 0
+    snake_x = window_width // 2
+    snake_y = window_height // 2
+    snake_x_change = 0
+    snake_y_change = 0
+    snake_body = []
+    snake_length = 1
+    generate_food()
+    maze_mode = False  # Reset maze_mode to False
+    time_mode = False  # Reset time_mode to False
+    start_time = 0  # Reset start_time to 0
+    window.fill(white)
+
+
+# Function to draw the snake
+def draw_snake():
+    for i, (x, y) in enumerate(snake_body):
+        green_component = max(255 - i * 10, 0)  # Ensure the green component is within valid range
+        segment_color = (255, green_component, 0)  # Gradient color based on segment index
+        pygame.draw.rect(window, segment_color, [x, y, snake_size, snake_size])
+
+
+# Function to generate new food position
+def generate_food():
+    global food_x, food_y
+    if maze_mode:
+        food_x, food_y = get_valid_position()
+    else:
+        food_x = round(random.randrange(0, window_width - snake_size) / 10.0) * 10.0
+        food_y = round(random.randrange(0, window_height - snake_size) / 10.0) * 10.0
+
+
+# Function to check for collisions
+def check_collision(x1, y1, x2, y2):
+    if x1 >= x2 and x1 < x2 + snake_size:
+        if y1 >= y2 and y1 < y2 + snake_size:
+            return True
+    return False
+
+
+# Functions to manage, display and store scores
+def show_score():
+    score_text = score_font.render("Score: " + str(score) + "  High Score: " + str(high_score), True, black)
+    score_text_rect = score_text.get_rect()
+    score_text_rect.bottomright = (window_width - 20, window_height - 20)  # Position the score text within the box
+    # Create a new surface with adjusted size
+    score_surface = pygame.Surface((score_text_rect.width + 20, score_text_rect.height + 10))
+    score_surface.fill(translucent_white)  # Fill it with a translucent color
+    score_surface.set_alpha(128)  # Set the alpha value for the surface (0 to 255)
+    score_surface.blit(score_text, (10, 5))  # Position the score text within the surface
+    # Position the score surface in the bottom right corner
+    window.blit(score_surface,
+                (window_width - score_surface.get_width() - 10, window_height - score_surface.get_height() - 10))
+    # Update the high score file
+    update_high_score(score)
+
+
+def update_high_score(score):
+    high_scores = load_high_scores()
+    if high_scores:
+        current_high_score = int(high_scores[0])
+        if score > current_high_score:
+            high_scores[0] = str(score) + "\n"
+            save_high_scores(high_scores)
+    else:
+        high_scores.append(str(score) + "\n")
+        save_high_scores(high_scores)
+
+
+def load_high_scores():
+    with open('highscores.txt', 'r') as file:
+        highscores = file.readlines()
+    return highscores
+
+
+def save_high_scores(highscores):
+    with open('highscores.txt', 'w') as file:
+        file.writelines(highscores)
+
+
+# Function to display the front page's specifics
+def draw_button(surface, rect, text, font, text_color, button_color, border_color, corner_radius):
+    button_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+    border_surface = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(button_surface, button_color, button_surface.get_rect(), border_radius=corner_radius)
+    pygame.draw.rect(border_surface, border_color, button_surface.get_rect(), border_radius=corner_radius, width=2)
+
+    text_surface = font.render(text, True, text_color)
+    text_rect = text_surface.get_rect(center=button_surface.get_rect().center)
+
+    button_surface.blit(text_surface, text_rect)
+    surface.blit(border_surface, rect.topleft)
+    surface.blit(button_surface, rect.topleft)
+
+
+def show_front_page():
+    # Blit the background image onto the window
+    window.blit(background_image, (0, 0))
+
+    title_text = title_font.render("Minor_Project_Pysnake", True, black)
+    title_text_rect = title_text.get_rect(center=(window_width // 2, window_height // 4 - 50))
+    window.blit(title_text, title_text_rect)
+
+    button_width = 180
+    button_height = 40
+    button_margin = 20
+    total_button_height = (button_height + button_margin) * 7
+    vertical_space = (window_height - title_text_rect.bottom - total_button_height) // 2
+    buttons_start_y = title_text_rect.bottom + vertical_space
+
+    button_rects = []  # List to store button rectangles
+
+    # Infinite button
+    infinite_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y,
+        button_width,
+        button_height
+    )
+    draw_button(window, infinite_button_rect, "Infinite Mode", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(infinite_button_rect)
+
+    # Time Mode button
+    time_mode_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y + (button_height + button_margin),
+        button_width,
+        button_height
+    )
+    draw_button(window, time_mode_button_rect, "Time Mode", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(time_mode_button_rect)
+
+    # Maze Mode button
+    maze_mode_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y + 2 * (button_height + button_margin),
+        button_width,
+        button_height
+    )
+    draw_button(window, maze_mode_button_rect, "Maze Mode", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(maze_mode_button_rect)
+
+    # Battle Mode button
+    battle_mode_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y + 3 * (button_height + button_margin),
+        button_width,
+        button_height
+    )
+    draw_button(window, battle_mode_button_rect, "Battle Mode", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(battle_mode_button_rect)
+
+    # Level button
+    level_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y + 4 * (button_height + button_margin),
+        button_width,
+        button_height
+    )
+    draw_button(window, level_button_rect, "Level", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(level_button_rect)
+
+    # Highscores button
+    highscores_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y + 5 * (button_height + button_margin),
+        button_width,
+        button_height
+    )
+    draw_button(window, highscores_button_rect, "Highscores", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(highscores_button_rect)
+
+    # About Us button
+    about_us_button_rect = pygame.Rect(
+        (window_width - button_width) // 2,
+        buttons_start_y + 6 * (button_height + button_margin),
+        button_width,
+        button_height
+    )
+    draw_button(window, about_us_button_rect, "About Us", font_style, black, translucent_white, light_black, 15)
+    button_rects.append(about_us_button_rect)
+
+    pygame.display.update()
+
+    return button_rects
+
+
+# Function to generate a maze with simpler design like PACMAN using Prim's algorithm
+def generate_maze():
+    if maze_mode:
+        # Initialize maze cells with open paths
+        for x in range(maze_width):
+            for y in range(maze_height):
+                maze_cells[x][y] = 1
+
+        # Create a grid with larger cells for corridors and random walls
+        for x in range(0, maze_width, 4):
+            for y in range(0, maze_height, 4):
+                if random.random() < 0.50:  # Adjust this probability to control the density of the random walls
+                    direction = random.choice(['horizontal', 'vertical'])
+                    if direction == 'horizontal' and x < maze_width - 1:
+                        for wall_y in range(max(0, y - 1), min(maze_height, y + 2)):
+                            maze_cells[x + 1][wall_y] = 1
+                    elif direction == 'vertical' and y < maze_height - 1:
+                        for wall_x in range(max(0, x - 1), min(maze_width, x + 2)):
+                            maze_cells[wall_x][y + 1] = 1
+
+        # Generate the maze in the center from both orientations
+        offset_x = (window_width - (maze_width * snake_size)) // 2
+        offset_y = (window_height - (maze_height * snake_size)) // 2
+        for x in range(maze_width):
+            for y in range(maze_height):
+                if maze_cells[x][y] == 1:
+                    pygame.draw.rect(window, white,
+                                     [offset_x + x * snake_size, offset_y + y * snake_size, snake_size, snake_size])
+
+        # Add border walls at the edge of the maze
+        for x in range(maze_width):
+            maze_cells[x][0] = 1
+            maze_cells[x][maze_height - 1] = 1
+        for y in range(maze_height):
+            maze_cells[0][y] = 1
+            maze_cells[maze_width - 1][y] = 1
+
+
+# Function to get a valid position for the snake or food
+def get_valid_position():
+    while True:
+        x = random.randrange(2, maze_width - 3)
+        y = random.randrange(2, maze_height - 3)
+        if maze_cells[x][y] == 0:
+            open_paths = 0
+            # Check all four adjacent cells
+            if maze_cells[x-1][y] == 0:
+                open_paths += 1
+            if maze_cells[x+1][y] == 0:
+                open_paths += 1
+            if maze_cells[x][y-1] == 0:
+                open_paths += 1
+            if maze_cells[x][y+1] == 0:
+                open_paths += 1
+            # If the cell is within the boundary and has more than one open path around it, return it
+            if open_paths > 1:
+                offset_x = (window_width - (maze_width * snake_size)) // 2
+                offset_y = (window_height - (maze_height * snake_size)) // 2
+                return offset_x + x * snake_size, offset_y + y * snake_size
+
+
+# Function to add valid neighbors of a cell to the stack
+def add_neighbors_to_stack(x, y):
+    neighbors = []
+    if x > 1:
+        neighbors.append((x - 2, y))
+    if y > 1:
+        neighbors.append((x, y - 2))
+    if x < maze_width - 2:
+        neighbors.append((x + 2, y))
+    if y < maze_height - 2:
+        neighbors.append((x, y + 2))
+    random.shuffle(neighbors)
+    neighbors = neighbors[:2]  # Choose a subset of neighbors (e.g., 2) to reduce density
+    for neighbor_x, neighbor_y in neighbors:
+        if maze_cells[neighbor_x][neighbor_y] == 1:
+            maze_cells[neighbor_x][neighbor_y] = 0
+            maze_cells[(x + neighbor_x) // 2][(y + neighbor_y) // 2] = 0
+            maze_stack.append((neighbor_x, neighbor_y))
+
+
+# Function to display the timer
+def show_timer():
+    if time_mode and start_time != 0:
+        elapsed_time = time.time() - start_time
+        remaining_time = time_limit - elapsed_time
+        if remaining_time < 0:
+            remaining_time = 0
+        timer_text = score_font.render("Time: " + str(int(remaining_time)), True, black)
+        timer_text_rect = timer_text.get_rect()
+        timer_text_rect.bottomleft = (20, window_height - 20)  # Position the timer text within the box
+        # Create a new surface with adjusted size
+        timer_surface = pygame.Surface((timer_text_rect.width + 20, timer_text_rect.height + 10))
+        timer_surface.fill(translucent_white)  # Fill it with a translucent color
+        timer_surface.set_alpha(128)  # Set the alpha value for the surface (0 to 255)
+        timer_surface.blit(timer_text, (10, 5))  # Position the timer text within the surface
+        # Position the timer surface in the bottom left corner
+        window.blit(timer_surface, (10, window_height - timer_surface.get_height() - 10))
+
+
+# Function to display setting level page
+def show_level_page():
+    global game_speed
+
+    # Blit the background image onto the window
+    window.blit(background_image, (0, 0))
+
+    # Render the title text
+    title_text = title_font.render("Set Difficulty Level", True, black)
+    title_text_rect = title_text.get_rect(center=(window_width // 2, window_height // 4))
+    window.blit(title_text, title_text_rect)
+
+    # Define the button dimensions and gaps
+    button_width = 200
+    button_height = 50
+    button_gap = 20
+
+    # Calculate the total height required for the buttons
+    total_button_height = (button_height + button_gap) * 5 - button_gap
+
+    # Calculate the starting position to center the buttons vertically
+    start_y = (window_height - total_button_height) // 2
+
+    # Draw the back button
+    back_rect = pygame.Rect(window_width // 2 - button_width // 2, window_height - 120, button_width, button_height)
+    draw_button(window, back_rect, "Back to Home", font_style, black, translucent_white, light_black, 15)
+
+    # Define the level buttons and their positions
+    beginner_rect = pygame.Rect(window_width // 2 - button_width // 2, start_y, button_width, button_height)
+    general_rect = pygame.Rect(window_width // 2 - button_width // 2, start_y + button_height + button_gap,
+                               button_width, button_height)
+    intermediate_rect = pygame.Rect(window_width // 2 - button_width // 2, start_y + (button_height + button_gap) * 2,
+                                    button_width, button_height)
+    advanced_rect = pygame.Rect(window_width // 2 - button_width // 2, start_y + (button_height + button_gap) * 3,
+                                button_width, button_height)
+    extreme_rect = pygame.Rect(window_width // 2 - button_width // 2, start_y + (button_height + button_gap) * 4,
+                               button_width, button_height)
+
+    # Draw the level buttons
+    draw_button(window, beginner_rect, "Beginner", font_style, black, translucent_white, light_black, 15)
+    draw_button(window, general_rect, "General", font_style, black, translucent_white, light_black, 15)
+    draw_button(window, intermediate_rect, "Intermediate", font_style, black, translucent_white, light_black, 15)
+    draw_button(window, advanced_rect, "Advanced", font_style, black, translucent_white, light_black, 15)
+    draw_button(window, extreme_rect, "Extreme", font_style, black, translucent_white, light_black, 15)
+
+    pygame.display.update()
+
+    return back_rect, beginner_rect, general_rect, intermediate_rect, advanced_rect, extreme_rect
+
+
+# Function to display the highscores page
+def show_highscores_page():
+    highscores = load_high_scores()
+
+    # Blit the background image onto the window
+    window.blit(background_image, (0, 0))
+
+    # Render the title text
+    title_text = title_font.render("Highscores", True, black)
+    title_text_rect = title_text.get_rect(center=(window_width // 2, window_height // 4))
+    window.blit(title_text, title_text_rect)
+
+    # Calculate the initial y-coordinate for displaying highscores
+    y = window_height // 4 + 50
+
+    # Display the highscores
+    for index, highscore in enumerate(highscores):
+        highscore_text = font_style.render(highscore.strip(), True, black)
+        highscore_text_rect = highscore_text.get_rect(center=(window_width // 2, y))
+        window.blit(highscore_text, highscore_text_rect)
+        y += 30  # Increase the y-coordinate by 30 pixels for the next highscore
+
+    # Draw the back button
+    back_rect = pygame.Rect(window_width // 2 - 75, window_height - 120, 150, 50)
+    draw_button(window, back_rect, "Back to Home", font_style, black, translucent_white, light_black, 15)
+
+    pygame.display.update()
+
+    return back_rect
+
+
+# Function to display the About Us information
+def show_about_us_page():
+    # Blit the background image onto the window
+    window.blit(background_image, (0, 0))
+
+    # Create a translucent box
+    box_width = 500
+    box_height = 400
+    box_x = (window_width - box_width) // 2
+    box_y = (window_height - box_height) // 2
+    box_surface = pygame.Surface((box_width, box_height))
+    box_surface.fill(translucent_white)
+    box_surface.set_alpha(128)
+    window.blit(box_surface, (box_x, box_y))
+
+    about_text = title_font.render("Developer's Details:", True, black)
+    about_text_rect = about_text.get_rect(center=(window_width // 2, box_y + 30))
+    window.blit(about_text, about_text_rect)
+
+    developer_text = "Developed By: Abhishek Shah"
+    year_text = "Developed Year: 2023"
+    specifics_text = "Specifics: This Snake game has been developed as a minor project for defense and is used to " \
+                     "understand how the Python library 'Pygame' can be used to create interactive, " \
+                     "fun, and classic snake games. It comes in three modes: 'Infinite Mode', 'Time Mode', " \
+                     "and 'Maze Mode'. It uses Prim's Algorithm to create random mazes in the Maze mode."
+
+    # Render and display the text with word wrap
+    line_height = 30
+    text_margin = 20
+    text_rect_y = box_y + 70
+
+    # render_and_blit_text(window, developer_text, font_style, black, box_x + text_margin, text_rect_y)
+    render_and_blit_text(window, year_text, font_style, black, box_x + text_margin, text_rect_y + line_height)
+    render_and_blit_text(window, specifics_text, font_style, black, box_x + text_margin, text_rect_y + 2 * line_height,
+                         box_width - 2 * text_margin)
+
+    # Calculate the rect for "Version: 1.0" text
+    version_text = font_style.render("Version: 1.0", True, black)
+    version_text_rect = version_text.get_rect(
+        bottomright=(box_x + box_width - text_margin, box_y + box_height - text_margin))
+    window.blit(version_text, version_text_rect)
+
+    # Back to Home button
+    back_rect = pygame.Rect(window_width // 2 - 75, box_y + box_height - 70, 150, 50)
+    draw_button(window, back_rect, "Back to Home", font_style, black, translucent_white, light_black, 15)
+
+    pygame.display.update()
+
+    return back_rect
+
+
+# Function to render and blit text with word wrap
+def render_and_blit_text(surface, text, font, color, x, y, max_width=None):
+    words = text.split(" ")
+    lines = []
+    current_line = ""
+    for word in words:
+        test_line = current_line + word + " "
+        if max_width and font.size(test_line)[0] > max_width:
+            lines.append(current_line)
+            current_line = word + " "
+        else:
+            current_line = test_line
+    lines.append(current_line)
+
+    for line in lines:
+        text_surface = font.render(line, True, color)
+        text_rect = text_surface.get_rect()
+        text_rect.topleft = (x, y)
+        surface.blit(text_surface, text_rect)
+        y += font.size(line)[1] + 5
+
+
+def move_enemy_snake_dijkstra():
+    global enemy_snake_x, enemy_snake_y, enemy_snake_x_change, enemy_snake_y_change
+
+    # Perform Dijkstra's algorithm to find the optimal path towards the food
+    start_node = (enemy_snake_x // snake_size, enemy_snake_y // snake_size)
+    target_node = (food_x // snake_size, food_y // snake_size)
+
+    # Create a priority queue for the frontier nodes
+    frontier = []
+    heappush(frontier, (0, start_node))
+
+    # Create a dictionary to store the cost of reaching each node
+    cost_so_far = {start_node: 0}
+
+    # Create a dictionary to store the previous node in the optimal path
+    came_from = {}
+
+    while frontier:
+        # Get the node with the lowest cost from the frontier
+        current_cost, current_node = heappop(frontier)
+
+        # Check if the target node has been reached
+        if current_node == target_node:
+            break
+
+        # Explore the neighboring nodes
+        for next_node in get_neighbors(current_node):
+            new_cost = cost_so_far[current_node] + 1  # Cost of moving to the next node is 1
+
+            if next_node not in cost_so_far or new_cost < cost_so_far[next_node]:
+                cost_so_far[next_node] = new_cost
+                priority = new_cost + manhattan_distance(next_node, target_node)
+                heappush(frontier, (priority, next_node))
+                came_from[next_node] = current_node
+
+    # Determine the next move based on the optimal path
+    if target_node in came_from:
+        path = []
+        current_node = target_node
+
+        while current_node != start_node:
+            path.append(current_node)
+            current_node = came_from[current_node]
+
+        next_node = path[-1]  # Choose the next node as the node next to the start_node on the path
+        next_x, next_y = next_node
+        if next_x > enemy_snake_x // snake_size:
+            enemy_snake_x_change = snake_size
+            enemy_snake_y_change = 0
+        elif next_x < enemy_snake_x // snake_size:
+            enemy_snake_x_change = -snake_size
+            enemy_snake_y_change = 0
+        elif next_y > enemy_snake_y // snake_size:
+            enemy_snake_y_change = snake_size
+            enemy_snake_x_change = 0
+        elif next_y < enemy_snake_y // snake_size:
+            enemy_snake_y_change = -snake_size
+            enemy_snake_x_change = 0
+
+
+def get_neighbors(node):
+    x, y = node
+    neighbors = []
+
+    if x > 0:
+        neighbors.append((x - 1, y))
+    if x < window_width // snake_size - 1:
+        neighbors.append((x + 1, y))
+    if y > 0:
+        neighbors.append((x, y - 1))
+    if y < window_height // snake_size - 1:
+        neighbors.append((x, y + 1))
+
+    return neighbors
+
+
+def manhattan_distance(node1, node2):
+    x1, y1 = node1
+    x2, y2 = node2
+    return abs(x1 - x2) + abs(y1 - y2)
+
+
+# Battle mode function to manage gameplay for battle mode using djikstra's algorithm
+def battle_mode():
+    global enemy_snake_x, enemy_snake_y, enemy_snake_x_change, enemy_snake_y_change
+    global snake_x, snake_y, snake_x_change, snake_y_change
+    global bm_score, bm_enemy_score, game_over
+    global food_x, food_y
+
+    # Game setup
+    game_grid = pygame.Surface((window_width, window_height))
+    snake_length = 5
+    enemy_snake_length = 5
+    snake_body = [(snake_x, snake_y) for _ in range(snake_length)]
+    enemy_snake_body = [(enemy_snake_x, enemy_snake_y) for _ in range(enemy_snake_length)]
+
+    # Generate food at a random position on the grid
+    food_x = random.randint(0, (window_width - snake_size) // snake_size) * snake_size
+    food_y = random.randint(0, (window_height - snake_size) // snake_size) * snake_size
+
+    game_active = True
+
+    while game_active:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                game_active = False
+                game_over = True
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_UP and snake_y_change != snake_size:
+                    snake_x_change = 0
+                    snake_y_change = -snake_size
+                elif event.key == pygame.K_DOWN and snake_y_change != -snake_size:
+                    snake_x_change = 0
+                    snake_y_change = snake_size
+                elif event.key == pygame.K_LEFT and snake_x_change != snake_size:
+                    snake_x_change = -snake_size
+                    snake_y_change = 0
+                elif event.key == pygame.K_RIGHT and snake_x_change != -snake_size:
+                    snake_x_change = snake_size
+                    snake_y_change = 0
+
+        # Update user-controlled snake position
+        snake_x += snake_x_change
+        snake_y += snake_y_change
+        snake_body.insert(0, (snake_x, snake_y))
+
+        # Update enemy snake position
+        move_enemy_snake_dijkstra()
+        enemy_snake_x += enemy_snake_x_change
+        enemy_snake_y += enemy_snake_y_change
+        enemy_snake_body.insert(0, (enemy_snake_x, enemy_snake_y))
+
+        # If user-controlled snake hasn't just eaten, remove the tail segment
+        if not (snake_x == food_x and snake_y == food_y):
+            snake_body.pop()
+
+        # Check for border collision
+        if snake_x >= window_width or snake_x < 0 or snake_y >= window_height or snake_y < 0:
+            game_active = False
+
+        # Check for self-collision
+        snake_head = (snake_x, snake_y)
+        if snake_head in snake_body[1:]:
+            game_active = False
+
+        # If enemy snake hasn't just eaten, remove the tail segment
+        if not (enemy_snake_x == food_x and enemy_snake_y == food_y):
+            enemy_snake_body.pop()
+
+        # Check for border collision for enemy snake
+        if enemy_snake_x >= window_width or enemy_snake_x < 0 or enemy_snake_y >= window_height or enemy_snake_y < 0:
+            game_active = False
+
+        # Check for self-collision for enemy snake
+        enemy_snake_head = (enemy_snake_x, enemy_snake_y)
+        if enemy_snake_head in enemy_snake_body[1:]:
+            game_active = False
+
+        # Check for food collision
+        if snake_x == food_x and snake_y == food_y:
+            bm_score += 10
+            generate_food()
+
+        if enemy_snake_x == food_x and enemy_snake_y == food_y:
+            bm_enemy_score += 10
+            generate_food()
+
+        # Update the game grid
+        game_grid.fill(black)
+
+        # Draw the snakes
+        draw_battlemode_snake(snake_body, white)
+        draw_battlemode_snake(enemy_snake_body, red)
+
+        # Draw the food
+        pygame.draw.rect(game_grid, green, [food_x, food_y, snake_size, snake_size])
+
+        # Update the main window
+        window.blit(playground_image, (0, 0))
+        window.blit(game_grid, (0, 0))
+
+        # Display the scores
+        show_battlemode_score(bm_score, bm_enemy_score)
+
+        # Check if a snake's score reaches zero
+        if bm_score <= 0 or bm_enemy_score <= 0:
+            game_active = False
+
+        # Update the display
+        pygame.display.update()
+        clock.tick(30)
+
+    # Display the game over message
+    if bm_score <= 0:
+        game_over_text = "Enemy Snake Wins!"
+    else:
+        game_over_text = "User Snake Wins!"
+
+    show_game_over(game_over_text)
+
+    # Wait until the user hits Enter to return to the homepage
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_RETURN:
+                return
+
+
+def show_battlemode_score(score, enemy_score):
+    global white, translucent_white, window_width, window_height
+
+    font = pygame.font.SysFont("century gothic", 16)
+    score_text = font.render("Score: " + str(score) + "  Enemy Score: " + str(enemy_score), True, black)
+
+    score_text_rect = score_text.get_rect()
+    score_text_rect.bottomright = (window_width - 20, window_height - 20)  # Position the score text within the box
+
+    # Create a new surface with adjusted size
+    score_surface = pygame.Surface((score_text_rect.width + 20, score_text_rect.height + 10))
+    score_surface.fill(translucent_white)  # Fill it with a translucent color
+    score_surface.set_alpha(128)  # Set the alpha value for the surface (0 to 255)
+
+    score_surface.blit(score_text, (10, 5))  # Position the score text within the surface
+
+    # Position the score surface in the bottom right corner
+    window.blit(score_surface,
+                (window_width - score_surface.get_width() - 10, window_height - score_surface.get_height() - 10))
+
+
+def show_game_over(text):
+    game_over_font = pygame.font.SysFont("century gothic", 50)
+    game_over_text = game_over_font.render(text, True, yellow)
+    game_over_text_rect = game_over_text.get_rect(center=(window_width // 2, window_height // 2))
+    window.blit(game_over_text, game_over_text_rect)
+
+
+def draw_battlemode_snake(body, color):
+    for i, (x, y) in enumerate(body):
+        green_component = max(255 - i * 10, 0)  # Ensure the green component is within valid range
+        segment_color = (255, green_component, 0)  # Gradient color based on segment index
+        pygame.draw.rect(window, color, [x, y, snake_size, snake_size])
+
+
+# Main game loop
+game_over = False
+front_page = True
+new_game_rect = None
+time_game_rect = None
+maze_game_rect = None
+battle_game_rect = None
+level_button_rect = None
+high_scores_rect = None
+about_us_rect = None
+back_rect = None
+
+start_time = 0
+game_active = False
+level_active = False
+about_us_active = False
+highscores_active = False
+
+# Define the about_us_rect variable here
+about_us_rect = show_about_us_page()
+
+while not game_over:
+    if front_page:
+        new_game_rect, time_game_rect, maze_game_rect, battle_game_rect, level_button_rect, \
+        highscores_rect, about_us_rect = show_front_page()
+
+    if highscores_active:
+        back_rect = show_highscores_page()
+
+    if about_us_active:
+        back_rect = show_about_us_page()
+
+    if level_active:
+        back_rect, beginner_rect, general_rect, intermediate_rect, advanced_rect, extreme_rect = show_level_page()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            game_over = True
+            game_over_sound.play()
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.button == 1:
+                mouse_pos = event.pos
+                if front_page:
+                    if new_game_rect.collidepoint(mouse_pos):
+                        front_page = False
+                        start_new_game()
+                        game_active = True
+                    elif time_game_rect.collidepoint(mouse_pos):
+                        front_page = False
+                        start_new_game()
+                        game_active = True
+                        time_mode = True
+                        start_time = time.time()
+                    elif maze_game_rect.collidepoint(mouse_pos):
+                        front_page = False
+                        start_new_game()
+                        game_active = True
+                        maze_mode = True
+                        generate_maze()
+                    elif battle_game_rect.collidepoint(mouse_pos):
+                        front_page = False
+                        battle_mode()
+                        game_active = True
+                    elif level_button_rect.collidepoint(mouse_pos):
+                        front_page = False
+                        level_active = True  # Activate level page
+                        level_button_rect = show_level_page()
+                    elif highscores_rect.collidepoint(mouse_pos):
+                        front_page = False
+                        highscores_active = True  # Activate highscores page
+                        level_button_rect = show_highscores_page()
+                    elif about_us_rect.collidepoint(mouse_pos) and not about_us_active:
+                        front_page = False
+                        about_us_active = True
+                        about_us_rect = show_about_us_page()
+                elif level_active:
+                    if back_rect.collidepoint(mouse_pos):
+                        front_page = True
+                        level_active = False
+                    elif beginner_rect.collidepoint(mouse_pos):
+                        game_speed = 5
+                    elif general_rect.collidepoint(mouse_pos):
+                        game_speed = 10
+                    elif intermediate_rect.collidepoint(mouse_pos):
+                        game_speed = 15
+                    elif advanced_rect.collidepoint(mouse_pos):
+                        game_speed = 20
+                    elif extreme_rect.collidepoint(mouse_pos):
+                        game_speed = 25
+                # Handle the Back button clicks
+                elif about_us_active or highscores_active or level_active:
+                    if back_rect and back_rect.collidepoint(mouse_pos):
+                        front_page = True
+                        about_us_active = False
+                        highscores_active = False
+                        level_active = False
+                        # Make sure to unset any active game modes
+                        game_active = False
+                        time_mode = False
+                        maze_mode = False
+
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                # Check if game is not active and highscores page is not active
+                if not game_active and not highscores_active:
+                    start_new_game()
+                    game_active = True
+                    front_page = True
+                    start_time = time.time()
+            elif game_active:
+                if event.key == pygame.K_UP and snake_y_change != snake_size:
+                    snake_x_change = 0
+                    snake_y_change = -snake_size
+                elif event.key == pygame.K_DOWN and snake_y_change != -snake_size:
+                    snake_x_change = 0
+                    snake_y_change = snake_size
+                elif event.key == pygame.K_LEFT and snake_x_change != snake_size:
+                    snake_x_change = -snake_size
+                    snake_y_change = 0
+                elif event.key == pygame.K_RIGHT and snake_x_change != -snake_size:
+                    snake_x_change = snake_size
+                    snake_y_change = 0
+    if game_active:
+        # Update snake position
+        snake_x += snake_x_change
+        snake_y += snake_y_change
+
+
+        # Check for border collision
+        if not maze_mode:
+            if snake_x >= window_width:
+                snake_x = 0
+            elif snake_x < 0:
+                snake_x = window_width - snake_size
+            elif snake_y >= window_height:
+                snake_y = 0
+            elif snake_y < 0:
+                snake_y = window_height - snake_size
+        else:
+            if (snake_x >= window_width - snake_size or snake_x < 0
+                    or snake_y >= window_height - snake_size or snake_y < 0):
+                game_active = False
+                game_over_sound.play()
+            else:  # additional check for maze collision
+                maze_x = (snake_x - offset_x) // snake_size
+                maze_y = (snake_y - offset_y) // snake_size
+                if maze_cells[maze_x][maze_y] == 1:
+                    game_active = False
+                    game_over_sound.play()
+
+        # Check for self-collision in all modes
+        snake_head = []
+        snake_head.append(snake_x)
+        snake_head.append(snake_y)
+        snake_body.append(snake_head)
+        if len(snake_body) > snake_length:
+            del snake_body[0]
+
+
+        for segment in snake_body[:-1]:
+            if segment == snake_head:
+                game_active = False
+                game_over_sound.play()
+                game_over_text = font_style.render("Game Over! Final Score: " + str(score), True, yellow)
+                game_over_text_rect = game_over_text.get_rect(center=(window_width // 2, window_height // 2))
+                window.blit(game_over_text, game_over_text_rect)
+                break
+
+
+
+        # Check for food collision
+        if check_collision(snake_x, snake_y, food_x, food_y):
+            score += 10
+            # Play food eating sound effect
+            food_eating_sound.play()
+            if score > high_score:
+                high_score = score
+            generate_food()
+            snake_length += 1
+
+        # Update the window background
+        window.blit(playground_image, (0, 0))
+
+        # Draw the maze
+        if maze_mode:
+            for x in range(maze_width):
+                for y in range(maze_height):
+                    if maze_cells[x][y] == 1:
+                        pygame.draw.rect(window, white,
+                                         [offset_x + x * snake_size, offset_y + y * snake_size, snake_size,
+                                          snake_size])
+
+        draw_snake()
+
+        # Draw the food
+        white_color = (250, 250, 250)
+        Modern_Green = (50, 205, 50)
+        pygame.draw.rect(window, Modern_Green, [food_x, food_y, snake_size, snake_size])
+
+        # Display the score and timer
+        show_score()
+        show_timer()
+
+        # Check if the time limit has been reached
+        if time_mode and start_time != 0:
+            elapsed_time = time.time() - start_time
+            if elapsed_time >= time_limit:
+                game_active = False
+                game_over_sound.play()
+                game_over_text = font_style.render("Time's up! Final Score: " + str(score), True, yellow)
+                game_over_text_rect = game_over_text.get_rect(center=(window_width // 2, window_height // 2))
+                window.blit(game_over_text, game_over_text_rect)
+
+    if front_page:
+        new_game_rect, time_game_rect, maze_game_rect, battle_game_rect, level_button_rect, \
+        highscores_rect, about_us_rect = show_front_page()
+
+    # Update the window
+    pygame.display.update()
+
+    # Control the game speed
+    clock.tick(game_speed)
+
+# Quit Pygame
+pygame.quit()
+
